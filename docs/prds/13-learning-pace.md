@@ -8,34 +8,45 @@
 | Sprint | S12 |
 
 ## 1. Problem
-Students need different depth and quiz difficulty (easy / medium / hard) for the same topic and source.
+Students need different depth and quiz difficulty (easy / medium / hard) for the **same** topic and source — one published lesson, different learner experience.
 
 ## 2. Goals
-- Support `pace` on generation: EASY | MEDIUM | HARD.
-- Store pace on asset version metadata (`content_json.meta.pace` or column).
-- Student preference selects pace; generate/show matching variant.
+- Support `pace` preference: EASY | MEDIUM | HARD.
+- Student preference selects pace; student layer personalizes approved explanation / quiz / video.
+- **Same concept → differentiated experience:**
+
+| Pace | Learner intent | Experience |
+|------|----------------|------------|
+| **HARD** | Fast / advanced | Advanced explanation, additional examples, challenge questions, deeper concepts |
+| **EASY** | Slow / scaffolding | Simplified explanation, step-by-step content, practice examples, practice questions |
+| **MEDIUM** | Default | Approved content with light framing |
 
 ## 3. Non-Goals
-Adaptive path engine that auto-changes pace mid-course (Phase 2).
+- Adaptive path engine that auto-changes pace mid-course (Phase 2).
+- Permanent “slow/fast learner” labels on the student profile (use pace preference only).
+- Separate instructor-approved asset versions per pace in v1 (personalize at read time from one APPROVED asset).
 
 ## 4. Domain Rules
-- Pace affects explanation length, video scene count, and quiz difficulty wording — still grounded.
-- Unique key for variants: `(topic_id, asset_type, language, pace)` via content JSON + query filter in student layer for v1.
-- No permanent “slow/fast learner” labels (align PRD-10).
+- Pace affects explanation structure/depth, video scene count/narration, and quiz framing — still grounded in the same approved JSON / quiz rows.
+- No inventing new quiz question IDs (scoring must keep real question UUIDs).
+- Unique presentation key: `(topic_id, asset_type, language, pace)` via personalization at read time.
+- Missing pace preference → MEDIUM.
 
 ## 5. Data
 - `student_preferences.preferred_pace`
-- Optional column later: `content_asset_versions.pace` — v1 stores in JSON `pace` field on root.
+- Personalized payload includes root `pace` (+ `language`) on explanation/video JSON.
 
 ## 6. API
 - Preferences include `preferredPace`
-- Generate may include `pace`
-- Student topic filters by pace with fallback MEDIUM → course default
+- Student topic lesson returns personalized explanation / quiz / video for current preference
 
 ## 7. Acceptance Criteria
-- [ ] Generate with pace embeds pace in content  
-- [ ] Student preference EASY returns EASY content when available  
-- [ ] Missing pace falls back to MEDIUM then any approved  
+- [x] Student preference EASY returns simplified, step-by-step explanation with practice framing
+- [x] Student preference HARD returns advanced explanation with deeper concepts + challenge framing
+- [x] EASY quiz uses practice framing and fewer questions; HARD uses challenge framing
+- [x] EASY video keeps fewer/shorter scenes; HARD keeps fuller scenes with deeper narration
+- [x] MEDIUM stays close to approved content
+- [x] Missing pace falls back to MEDIUM
 
 ## 8. Unit Test Cases
 See UNIT_TEST_CASES §PRD-13.

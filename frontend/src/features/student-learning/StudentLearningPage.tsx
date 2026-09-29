@@ -275,15 +275,19 @@ export function StudentLearningPage() {
               value={prefs.preferredPace}
               onChange={(e) => setPrefs((p) => ({ ...p, preferredPace: e.target.value }))}
             >
-              <option value="EASY">Easy</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="HARD">Hard</option>
+              <option value="EASY">Easy — step-by-step &amp; practice</option>
+              <option value="MEDIUM">Medium — standard lesson</option>
+              <option value="HARD">Hard — advanced &amp; challenge</option>
             </select>
           </label>
           <button type="button" onClick={() => void savePrefs()}>
             Save preferences
           </button>
         </div>
+        <p className="muted small">
+          Same published concept, different experience: Easy simplifies and scaffolds; Hard deepens
+          with extra examples and challenge questions. Save, then reopen the topic.
+        </p>
       </div>
 
       <div className="student-layout">
@@ -464,7 +468,12 @@ export function StudentLearningPage() {
               )}
 
               <section className="lesson-section">
-                <h3>Explanation</h3>
+                <h3>
+                  Explanation{" "}
+                  {lesson.appliedPace && (
+                    <span className="tag">{lesson.appliedPace}</span>
+                  )}
+                </h3>
                 {!explanation && (
                   <p className="muted">No approved explanation for this topic yet.</p>
                 )}
@@ -474,7 +483,13 @@ export function StudentLearningPage() {
                     <p className="explanation-body">{explanation.body}</p>
                     {explanation.keyPoints.length > 0 && (
                       <>
-                        <p className="key-points-label">Key points</p>
+                        <p className="key-points-label">
+                          {lesson.appliedPace === "EASY"
+                            ? "Steps & practice"
+                            : lesson.appliedPace === "HARD"
+                              ? "Deeper points & challenges"
+                              : "Key points"}
+                        </p>
                         <ul className="key-points">
                           {explanation.keyPoints.map((kp, i) => (
                             <li key={i}>{kp}</li>

@@ -9,7 +9,7 @@ class PermissionTest {
     @Test
     void forRole_instructor_containsCourseCreate_notSourcePublish() {
         assertThat(Permission.forRole(UserRole.INSTRUCTOR))
-                .contains(Permission.COURSE_CREATE, Permission.CONTENT_GENERATE, Permission.SYNC_REVIEW)
+                .contains(Permission.COURSE_CREATE, Permission.CONTENT_GENERATE, Permission.SYNC_REVIEW, Permission.LESSON_VIEW)
                 .doesNotContain(Permission.SOURCE_PUBLISH);
     }
 

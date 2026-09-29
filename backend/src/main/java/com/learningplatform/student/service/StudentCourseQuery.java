@@ -1,6 +1,7 @@
 package com.learningplatform.student.service;
 
 import com.learningplatform.common.domain.Permission;
+import com.learningplatform.common.domain.UserRole;
 import com.learningplatform.common.exception.NotFoundException;
 import com.learningplatform.common.security.AuthenticatedUser;
 import com.learningplatform.common.security.PermissionGuard;
@@ -42,15 +43,37 @@ public class StudentCourseQuery {
     @Transactional
     public Course getPublished(UUID courseId) {
         AuthenticatedUser user = PermissionGuard.require(Permission.COURSE_VIEW);
-        Course course = courseRepository.findById(courseId)
-                .orElseThrow(() -> new NotFoundException("COURSE_NOT_FOUND", "Course was not found."));
-        if (!course.getOrganizationId().equals(user.organizationId())) {
-            throw new NotFoundException("COURSE_NOT_FOUND", "Course was not found.");
+        Course course = requireOrgCourse(courseId, user);
+        if (course.getStatus() != CourseStatus.PUBLISHED) {
+            throw new NotFoundException("COURSE_NOT_PUBLISHED", "Course is not available to students.");
+        }
+        ensureEnrolled(user, course);
+        return course;
+    }
+
+    /**
+     * Lesson access: students need PUBLISHED + enrollment; instructors may preview any org course status.
+     */
+    @Transactional
+    public Course getCourseForLesson(UUID courseId) {
+        AuthenticatedUser user = PermissionGuard.require(Permission.COURSE_VIEW);
+        Course course = requireOrgCourse(courseId, user);
+        if (user.role() == UserRole.INSTRUCTOR) {
+            return course;
         }
         if (course.getStatus() != CourseStatus.PUBLISHED) {
             throw new NotFoundException("COURSE_NOT_PUBLISHED", "Course is not available to students.");
         }
         ensureEnrolled(user, course);
+        return course;
+    }
+
+    private Course requireOrgCourse(UUID courseId, AuthenticatedUser user) {
+        Course course = courseRepository.findById(courseId)
+                .orElseThrow(() -> new NotFoundException("COURSE_NOT_FOUND", "Course was not found."));
+        if (!course.getOrganizationId().equals(user.organizationId())) {
+            throw new NotFoundException("COURSE_NOT_FOUND", "Course was not found.");
+        }
         return course;
     }
 

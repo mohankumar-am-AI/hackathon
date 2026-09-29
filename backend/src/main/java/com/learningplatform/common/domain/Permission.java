@@ -35,6 +35,7 @@ public enum Permission {
                     COURSE_CREATE, COURSE_EDIT, COURSE_VIEW, COURSE_PUBLISH,
                     CONTENT_GENERATE, CONTENT_EDIT,
                     IMPACT_VIEW, SYNC_REVIEW,
+                    LESSON_VIEW,
                     PROGRESS_VIEW
             );
             case STUDENT -> EnumSet.of(

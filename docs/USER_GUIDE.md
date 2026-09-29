@@ -132,6 +132,7 @@ After a source update, the course often becomes **UPDATE_REQUIRED** (hidden from
 | Create org | any | Organizations | Create + select in top bar |
 | Add PDF | CONTENT_OWNER | Source Materials | Upload → Publish version |
 | Build course | INSTRUCTOR | Course Authoring | Create → structure → generate → approve → Publish |
+| Preview as instructor | INSTRUCTOR | Course Authoring | Select course → **Preview: …** / **Preview lesson** |
 | Learn | STUDENT | Student Learning | Prefs → open course → topic |
 | New PDF version | CONTENT_OWNER then INSTRUCTOR | Source Materials → Sync → Course Authoring | Publish version → Regenerate → Approve → Publish course |
 
@@ -143,4 +144,7 @@ After a source update, the course often becomes **UPDATE_REQUIRED** (hidden from
 - Prefer **Publish (allow incomplete)** for demos with a few ready topics.
 - Generation/sync can take time; wait for operation status **COMPLETED**.
 - Language/pace change how the lesson is presented; save prefs then reopen the topic.
+  - **Easy** = step-by-step + practice examples/questions.
+  - **Hard** = advanced explanation + deeper concepts + challenge questions.
+- Instructors can **Preview lesson** on a topic in Course Authoring (learner layout) without switching to STUDENT.
 - VIDEO is optional for publish; EXPLANATION + QUIZ must be approved for a topic to appear for students.

@@ -183,6 +183,11 @@ Naming: `UnitName_condition_expectedResult`
 |----|------|-----------|----------|
 | UT-13-01 | StudentPreferenceService | set pace EASY | persisted |
 | UT-13-02 | ContentLocaleResolver | preferred EASY missing | fallback MEDIUM |
+| UT-13-03 | LessonPersonalizer | explanation EASY | step-by-step + simplified + practice example |
+| UT-13-04 | LessonPersonalizer | explanation HARD | advanced + deeper concepts + additional example |
+| UT-13-05 | LessonPersonalizer | quiz EASY | Practice framing; fewer questions |
+| UT-13-06 | LessonPersonalizer | quiz HARD | Challenge framing; all questions |
+| UT-13-07 | LessonPersonalizer | video EASY vs HARD | fewer/shorter scenes vs fuller/deeper |
 
 ---
 

@@ -9,6 +9,7 @@ import com.learningplatform.assessment.repository.QuizRepository;
 import com.learningplatform.assessment.scoring.QuizScorer;
 import com.learningplatform.audit.service.AuditService;
 import com.learningplatform.common.domain.Permission;
+import com.learningplatform.common.domain.UserRole;
 import com.learningplatform.common.exception.BusinessException;
 import com.learningplatform.common.exception.NotFoundException;
 import com.learningplatform.common.security.AuthenticatedUser;
@@ -145,13 +146,14 @@ public class StudentLearningService {
 
     @Transactional
     public TopicLessonView topicLesson(UUID topicId) {
-        PermissionGuard.require(Permission.LESSON_VIEW);
+        AuthenticatedUser user = PermissionGuard.require(Permission.LESSON_VIEW);
+        boolean instructorPreview = user.role() == UserRole.INSTRUCTOR;
         CourseTopic topic = topicRepository.findById(topicId)
                 .orElseThrow(() -> new NotFoundException("TOPIC_NOT_FOUND", "Topic was not found."));
         CourseChapter chapter = chapterRepository.findById(topic.getChapterId())
                 .orElseThrow(() -> new NotFoundException("CHAPTER_NOT_FOUND", "Chapter was not found."));
-        Course course = studentCourseQuery.getPublished(chapter.getCourseId());
-        if (!isTopicReadyForStudent(topicId)) {
+        Course course = studentCourseQuery.getCourseForLesson(chapter.getCourseId());
+        if (!instructorPreview && !isTopicReadyForStudent(topicId)) {
             throw new NotFoundException(
                     "TOPIC_NOT_READY",
                     "This topic is not available yet. Instructor must approve explanation and quiz."
@@ -167,8 +169,7 @@ public class StudentLearningService {
         ContentAsset explanation = assetRepository.findByTopicIdAndAssetType(topicId, AssetType.EXPLANATION).orElse(null);
         if (explanation != null && explanation.getCurrentVersionId() != null) {
             ContentAssetVersion version = versionRepository.findById(explanation.getCurrentVersionId()).orElse(null);
-            if (version != null && (version.getStatus() == ContentAssetStatus.APPROVED
-                    || explanation.getStatus() == ContentAssetStatus.APPROVED)) {
+            if (version != null && isVisibleLessonAsset(explanation, version, instructorPreview)) {
                 explanationJson = lessonPersonalizer.personalizeExplanation(version.getContentJson(), language, pace);
                 explanationAssetId = explanation.getId();
             }
@@ -177,30 +178,33 @@ public class StudentLearningService {
         QuizView quizView = null;
         ContentAsset quizAsset = assetRepository.findByTopicIdAndAssetType(topicId, AssetType.QUIZ).orElse(null);
         if (quizAsset != null && quizAsset.getCurrentVersionId() != null) {
-            Quiz quiz = quizRepository.findByContentAssetVersionId(quizAsset.getCurrentVersionId())
-                    .or(() -> quizRepository.findFirstByContentAssetIdOrderByCreatedAtDesc(quizAsset.getId()))
-                    .orElse(null);
-            if (quiz != null) {
-                List<LessonPersonalizer.QuizQuestion> raw = quizQuestionRepository.findByQuizIdOrderBySequenceAsc(quiz.getId())
-                        .stream()
-                        .map(q -> new LessonPersonalizer.QuizQuestion(
-                                q.getId(),
-                                q.getSequence(),
-                                q.getPrompt(),
-                                parseOptions(q.getOptionsJson())
-                        ))
-                        .toList();
-                LessonPersonalizer.PersonalizedQuiz personalized =
-                        lessonPersonalizer.personalizeQuiz(quiz.getTitle(), raw, language, pace);
-                List<QuestionView> questions = personalized.questions().stream()
-                        .map(q -> new QuestionView(
-                                q.id(),
-                                q.sequence(),
-                                q.prompt(),
-                                writeOptions(q.options())
-                        ))
-                        .toList();
-                quizView = new QuizView(quiz.getId(), personalized.title(), questions);
+            ContentAssetVersion quizVersion = versionRepository.findById(quizAsset.getCurrentVersionId()).orElse(null);
+            if (quizVersion != null && isVisibleLessonAsset(quizAsset, quizVersion, instructorPreview)) {
+                Quiz quiz = quizRepository.findByContentAssetVersionId(quizAsset.getCurrentVersionId())
+                        .or(() -> quizRepository.findFirstByContentAssetIdOrderByCreatedAtDesc(quizAsset.getId()))
+                        .orElse(null);
+                if (quiz != null) {
+                    List<LessonPersonalizer.QuizQuestion> raw = quizQuestionRepository.findByQuizIdOrderBySequenceAsc(quiz.getId())
+                            .stream()
+                            .map(q -> new LessonPersonalizer.QuizQuestion(
+                                    q.getId(),
+                                    q.getSequence(),
+                                    q.getPrompt(),
+                                    parseOptions(q.getOptionsJson())
+                            ))
+                            .toList();
+                    LessonPersonalizer.PersonalizedQuiz personalized =
+                            lessonPersonalizer.personalizeQuiz(quiz.getTitle(), raw, language, pace);
+                    List<QuestionView> questions = personalized.questions().stream()
+                            .map(q -> new QuestionView(
+                                    q.id(),
+                                    q.sequence(),
+                                    q.prompt(),
+                                    writeOptions(q.options())
+                            ))
+                            .toList();
+                    quizView = new QuizView(quiz.getId(), personalized.title(), questions);
+                }
             }
         }
 
@@ -209,15 +213,15 @@ public class StudentLearningService {
         ContentAsset videoAsset = assetRepository.findByTopicIdAndAssetType(topicId, AssetType.VIDEO).orElse(null);
         if (videoAsset != null && videoAsset.getCurrentVersionId() != null) {
             ContentAssetVersion version = versionRepository.findById(videoAsset.getCurrentVersionId()).orElse(null);
-            if (version != null && (version.getStatus() == ContentAssetStatus.APPROVED
-                    || videoAsset.getStatus() == ContentAssetStatus.APPROVED)) {
+            if (version != null && isVisibleLessonAsset(videoAsset, version, instructorPreview)) {
                 videoJson = lessonPersonalizer.personalizeVideo(version.getContentJson(), language, pace);
-                // Do not render MP4 here — that blocks topic switching. Video loads lazily via videoMp4Url.
                 videoMp4Url = "/api/v1/student/topics/" + topicId + "/video.mp4";
             }
         }
 
-        progressService.markLessonViewed(course.getId(), topicId);
+        if (!instructorPreview) {
+            progressService.markLessonViewed(course.getId(), topicId);
+        }
         return new TopicLessonView(
                 topic.getId(),
                 topic.getTitle(),
@@ -232,14 +236,32 @@ public class StudentLearningService {
         );
     }
 
+    private static boolean isVisibleLessonAsset(
+            ContentAsset asset,
+            ContentAssetVersion version,
+            boolean instructorPreview
+    ) {
+        if (asset.getStatus() == ContentAssetStatus.APPROVED || version.getStatus() == ContentAssetStatus.APPROVED) {
+            return true;
+        }
+        if (!instructorPreview) {
+            return false;
+        }
+        return version.getStatus() == ContentAssetStatus.PENDING_REVIEW
+                || version.getStatus() == ContentAssetStatus.GENERATED
+                || asset.getStatus() == ContentAssetStatus.PENDING_REVIEW
+                || asset.getStatus() == ContentAssetStatus.GENERATED;
+    }
+
     @Transactional(readOnly = true)
     public byte[] topicVideoMp4(UUID topicId) {
-        PermissionGuard.require(Permission.LESSON_VIEW);
+        AuthenticatedUser user = PermissionGuard.require(Permission.LESSON_VIEW);
+        boolean instructorPreview = user.role() == UserRole.INSTRUCTOR;
         CourseTopic topic = topicRepository.findById(topicId)
                 .orElseThrow(() -> new NotFoundException("TOPIC_NOT_FOUND", "Topic was not found."));
         CourseChapter chapter = chapterRepository.findById(topic.getChapterId())
                 .orElseThrow(() -> new NotFoundException("CHAPTER_NOT_FOUND", "Chapter was not found."));
-        studentCourseQuery.getPublished(chapter.getCourseId());
+        studentCourseQuery.getCourseForLesson(chapter.getCourseId());
 
         StudentPreference prefs = preferenceService.getOrDefault();
         String language = prefs.getPreferredLanguage();
@@ -249,8 +271,8 @@ public class StudentLearningService {
                 .orElseThrow(() -> new NotFoundException("VIDEO_NOT_FOUND", "No video for this topic."));
         ContentAssetVersion version = versionRepository.findById(videoAsset.getCurrentVersionId())
                 .orElseThrow(() -> new NotFoundException("VIDEO_NOT_FOUND", "No video version."));
-        if (version.getStatus() != ContentAssetStatus.APPROVED && videoAsset.getStatus() != ContentAssetStatus.APPROVED) {
-            throw new NotFoundException("VIDEO_NOT_APPROVED", "Video is not approved.");
+        if (!isVisibleLessonAsset(videoAsset, version, instructorPreview)) {
+            throw new NotFoundException("VIDEO_NOT_APPROVED", "Video is not available for this viewer.");
         }
         String personalized = lessonPersonalizer.personalizeVideo(version.getContentJson(), language, pace);
         String key = VideoMediaService.keyFor(videoAsset.getId().toString(), language, pace.name());

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../../services/auth-context";
 import {
   apiGet,
+  apiGetBlob,
   apiPatch,
   apiPost,
   apiPut,
@@ -42,6 +43,16 @@ export function CourseAuthoringPage() {
   const [pendingReview, setPendingReview] = useState<
     { id: string; topicId: string; topicTitle: string; assetType: string; status: string }[]
   >([]);
+  const [lessonPreview, setLessonPreview] = useState<{
+    topicId: string;
+    title: string;
+    explanationJson: string | null;
+    quiz: { title: string; questions: { sequence: number; prompt: string; optionsJson: string }[] } | null;
+    videoJson: string | null;
+    videoMp4Url?: string | null;
+    appliedPace?: string;
+  } | null>(null);
+  const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
 
   function courseAuth(): AuthIdentity {
     if (identity.role !== "INSTRUCTOR") {
@@ -55,6 +66,10 @@ export function CourseAuthoringPage() {
       setRole("INSTRUCTOR");
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    closeLessonPreview();
+  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadCourses = useCallback(async () => {
     const auth = { ...identity, role: "INSTRUCTOR" as const };
@@ -317,6 +332,86 @@ export function CourseAuthoringPage() {
     setSelectedTopicIds(new Set(ids));
   }
 
+  async function previewTopicLesson(topicId: string) {
+    const auth = courseAuth();
+    setMessage(null);
+    setError(null);
+    if (previewVideoUrl) {
+      URL.revokeObjectURL(previewVideoUrl);
+      setPreviewVideoUrl(null);
+    }
+    try {
+      const lesson = await apiGet<{
+        topicId: string;
+        title: string;
+        explanationJson: string | null;
+        quiz: { title: string; questions: { sequence: number; prompt: string; optionsJson: string }[] } | null;
+        videoJson: string | null;
+        videoMp4Url?: string | null;
+        appliedPace?: string;
+      }>(`/api/v1/student/topics/${topicId}`, auth);
+      setLessonPreview(lesson);
+      setMessage(`Instructor preview: ${lesson.title}`);
+      if (lesson.videoMp4Url) {
+        void apiGetBlob(lesson.videoMp4Url, auth)
+          .then((blob) => setPreviewVideoUrl(URL.createObjectURL(blob)))
+          .catch(() => setPreviewVideoUrl(null));
+      }
+      requestAnimationFrame(() => {
+        document.getElementById("instructor-lesson-preview")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    } catch (err) {
+      setLessonPreview(null);
+      setError(err instanceof Error ? err.message : "Preview failed — generate content for this topic first");
+    }
+  }
+
+  function closeLessonPreview() {
+    if (previewVideoUrl) {
+      URL.revokeObjectURL(previewVideoUrl);
+      setPreviewVideoUrl(null);
+    }
+    setLessonPreview(null);
+  }
+
+  function parsePreviewExplanation(json: string | null): { title: string; body: string; keyPoints: string[] } | null {
+    if (!json) return null;
+    try {
+      const parsed = JSON.parse(json) as { title?: string; body?: string; keyPoints?: unknown };
+      return {
+        title: parsed.title?.trim() || "Lesson",
+        body: parsed.body?.trim() || "",
+        keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints.map(String).filter(Boolean) : [],
+      };
+    } catch {
+      return { title: "Lesson", body: json, keyPoints: [] };
+    }
+  }
+
+  function parsePreviewOptions(optionsJson: string): string[] {
+    try {
+      const parsed = JSON.parse(optionsJson) as unknown;
+      return Array.isArray(parsed) ? parsed.map(String) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function parsePreviewScenes(videoJson: string | null): { sequence: number; narration: string; onScreenText: string }[] {
+    if (!videoJson) return [];
+    try {
+      const parsed = JSON.parse(videoJson) as { scenes?: { sequence?: number; narration?: string; onScreenText?: string }[] };
+      if (!Array.isArray(parsed.scenes)) return [];
+      return parsed.scenes.map((s, i) => ({
+        sequence: s.sequence ?? i + 1,
+        narration: s.narration ?? "",
+        onScreenText: s.onScreenText ?? "",
+      }));
+    } catch {
+      return [];
+    }
+  }
+
   async function viewAsset(assetId: string) {
     const auth = courseAuth();
     try {
@@ -458,8 +553,8 @@ export function CourseAuthoringPage() {
       <p className="muted">PRD-05/06/07 — structure, AI content, review &amp; publish.</p>
       <p className="muted small">
         Role <strong>INSTRUCTOR</strong> · same Org as source. Flow: Generate structure → select a few topics →
-        Generate → Approve → <strong>Publish (allow incomplete)</strong>. Students only see{" "}
-        <strong>PUBLISHED</strong> courses.
+        Generate → Approve → <strong>Publish (allow incomplete)</strong>. Use <strong>Preview lesson</strong> on
+        a topic to see the learner view without switching to STUDENT.
       </p>
       {message && <div className="banner ok">{message}</div>}
       {error && <div className="banner error">{error}</div>}
@@ -541,6 +636,28 @@ export function CourseAuthoringPage() {
                 Use <strong>allow incomplete</strong> so students can see the course after a few topics are
                 approved. Regenerate structure if you still have hundreds of noisy PDF sections.
               </p>
+              {detail && detail.chapters.some((ch) => ch.topics.length > 0) && (
+                <div style={{ marginTop: "0.75rem" }}>
+                  <p className="muted small">
+                    <strong>Instructor preview</strong> (learner layout, stay as INSTRUCTOR):
+                  </p>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+                    {detail.chapters
+                      .flatMap((ch) => ch.topics)
+                      .slice(0, 8)
+                      .map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          className="secondary"
+                          onClick={() => void previewTopicLesson(t.id)}
+                        >
+                          Preview: {t.title.length > 28 ? `${t.title.slice(0, 28)}…` : t.title}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -642,6 +759,9 @@ export function CourseAuthoringPage() {
                       <button type="button" onClick={() => void onGenerateContent(t.id)}>
                         Generate content
                       </button>{" "}
+                      <button type="button" className="secondary" onClick={() => void previewTopicLesson(t.id)}>
+                        Preview lesson
+                      </button>{" "}
                       <button
                         type="button"
                         className="linkish"
@@ -666,6 +786,95 @@ export function CourseAuthoringPage() {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {lessonPreview && (
+        <div className="panel" id="instructor-lesson-preview">
+          <h2>
+            Instructor lesson preview · {lessonPreview.title}{" "}
+            {lessonPreview.appliedPace && <span className="tag">{lessonPreview.appliedPace}</span>}
+          </h2>
+          <p className="muted small">
+            Learner layout while staying as <strong>INSTRUCTOR</strong>. Works for DRAFT / PUBLISHED /
+            UPDATE_REQUIRED. Pending-review content is visible here; students only see approved content on
+            published courses.
+          </p>
+          {(() => {
+            const explanation = parsePreviewExplanation(lessonPreview.explanationJson);
+            const scenes = parsePreviewScenes(lessonPreview.videoJson);
+            return (
+              <>
+                {(previewVideoUrl || scenes.length > 0) && (
+                  <section className="lesson-section">
+                    <h3>Lesson video</h3>
+                    {previewVideoUrl && (
+                      <video
+                        controls
+                        src={previewVideoUrl}
+                        style={{ width: "100%", maxWidth: 640, borderRadius: 8 }}
+                      />
+                    )}
+                    {scenes.length > 0 && (
+                      <ul className="list" style={{ marginTop: "0.5rem" }}>
+                        {scenes.map((s) => (
+                          <li key={s.sequence}>
+                            <strong>
+                              Scene {s.sequence}: {s.onScreenText}
+                            </strong>
+                            <div className="muted small">{s.narration}</div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                )}
+                <section className="lesson-section">
+                  <h3>Explanation</h3>
+                  {!explanation && <p className="muted">No explanation generated yet for this topic.</p>}
+                  {explanation && (
+                    <div className="explanation-card">
+                      <h4>{explanation.title}</h4>
+                      <p className="explanation-body">{explanation.body}</p>
+                      {explanation.keyPoints.length > 0 && (
+                        <ul className="key-points">
+                          {explanation.keyPoints.map((kp, i) => (
+                            <li key={i}>{kp}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </section>
+                {lessonPreview.quiz && (
+                  <section className="lesson-section quiz-section">
+                    <h3>{lessonPreview.quiz.title}</h3>
+                    {lessonPreview.quiz.questions.map((q, qi) => (
+                      <div key={qi} className="quiz-question">
+                        <p className="quiz-prompt">
+                          {q.sequence}. {q.prompt}
+                        </p>
+                        <ul className="list">
+                          {parsePreviewOptions(q.optionsJson).map((opt, idx) => (
+                            <li key={idx}>{opt}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </section>
+                )}
+                {!explanation && !lessonPreview.quiz && !lessonPreview.videoJson && (
+                  <p className="banner error">
+                    No generated content on this topic yet. Click <strong>Generate content</strong>, then preview
+                    again.
+                  </p>
+                )}
+              </>
+            );
+          })()}
+          <button type="button" className="secondary" onClick={closeLessonPreview}>
+            Close preview
+          </button>
         </div>
       )}
 
